@@ -23,12 +23,13 @@ schedules:
 
 pool:
   name: 'Default'  # Use self-hosted agent pool (free, no parallelism limits)
+  # vmImage: 'windows-latest'  # Microsoft-hosted (requires parallelism grant)
 
 variables:
   - name: Organization
-    value: 'https://dev.azure.com/ORG_PLACEHOLDER'
+    value: 'https://dev.azure.com/ap12324546'
   - name: Project
-    value: 'PROJECT_PLACEHOLDER'
+    value: 'AP54'
   # Set AzureDevOpsToken as a secret variable in the pipeline UI or use System.AccessToken
 
 stages:
@@ -176,7 +177,14 @@ stages:
             
             # Push to the branch we're on
             Write-Host "Pushing to branch: $branchName"
-            # git push origin $branchName
+            git push origin $branchName
+            
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "✅ Database committed and pushed successfully"
+            } else {
+              Write-Host "❌ Failed to push database" -ForegroundColor Red
+              exit 1
+            }
           } else {
             Write-Host "No changes to database - skipping commit"
           }

@@ -1,0 +1,25 @@
+# SonarCloud analysis pipeline template for AP54
+# This file is intended to be included in the main pipeline as a template.
+
+steps:
+- task: SonarCloudPrepare@1
+  inputs:
+    SonarCloud: 'sonar'
+    organization: 'ap12324546'
+    scannerMode: 'CLI'
+    configMode: 'manual'
+    cliProjectKey: 'ap12324546_AP54'
+    cliProjectName: 'AP54'
+    extraProperties: |
+      sonar.sources=my-app/src
+      sonar.exclusions=**/node_modules/**,**/build/**,**/coverage/**
+      sonar.javascript.lcov.reportPaths=my-app/coverage/lcov.info
+  displayName: 'Prepare SonarCloud analysis'
+
+- task: SonarCloudAnalyze@1
+  displayName: 'Run SonarCloud analysis'
+
+- task: SonarCloudPublish@1
+  inputs:
+    pollingTimeoutSec: '300'
+  displayName: 'Publish SonarCloud Quality Gate Result'

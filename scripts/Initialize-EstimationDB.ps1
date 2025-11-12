@@ -12,7 +12,6 @@ Import-Module PSSQLite -ErrorAction Stop
 # Create database file path in the repository root (parent of scripts folder)
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $dbFullPath = Join-Path $repoRoot $DbPath
-Write-Host "Database location: $dbFullPath"
 
 # Create tables using Invoke-SqliteQuery
 Write-Host "Creating tables..." -ForegroundColor Yellow
@@ -57,10 +56,8 @@ foreach ($index in $indexes) {
     Invoke-SqliteQuery -DataSource $dbFullPath -Query $index
 }
 
-Write-Host "  Indexes created" -ForegroundColor Gray
 Write-Host "✅ Database initialized successfully!" -ForegroundColor Green
 Write-Host "   Location: $dbFullPath" -ForegroundColor Cyan
-
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Run Collect-HistoricalData.ps1 to populate with closed User Stories"
 Write-Host "  2. AI will use this memory for better estimations"

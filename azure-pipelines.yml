@@ -6,7 +6,14 @@ pool:
 
 variables:
   # Set node version used by the pipeline
-  # ...existing code...
+  node_version: '18'
+  # Epic configuration for vulnerability tickets
+  vulnerabilityEpicId: '78'  # Replace with your Epic work item ID
+  vulnerabilityEpicTitle: 'Security & Vulnerability Management'  # Your existing Epic title
+  # Enable OAuth token access for work item creation
+  system.accesstoken: $(System.AccessToken)
+  
+  # 🤖 AI Provider Selection (true = Local/Private, false = Cloud)
   useLocalAI: true  # Set to false to use Groq cloud API instead
 
 steps:
@@ -17,19 +24,49 @@ steps:
 # Install Node and cache npm
 - task: NodeTool@0
   inputs:
-    # ...existing code...
+    versionSpec: '$(node_version)'
   displayName: 'Use Node.js $(node_version)'
 
 # Verify FREE AI service (Ollama pre-installed on agent)
 - task: PowerShell@2
   inputs:
-    # ...existing code...
+    targetType: 'inline'
+    script: |
+      Write-Host "##[section]🔍 Verifying FREE AI service on agent..."
+      
+      try {
+        $health = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 5
+        $modelCount = $health.models.Count
+        $models = $health.models.name -join ', '
+        
+        Write-Host "##[section]✅ Ollama running with $modelCount models: $models"
+        
+        # Verify CodeLlama is available for technical estimation
+        if ($health.models | Where-Object { $_.name -like "codellama*" }) {
+          Write-Host "##[section]🎯 CodeLlama ready for technical User Story estimation!"
+        } else {
+          Write-Host "##[warning]CodeLlama not found, will use available model"
+        }
+      }
+      catch {
+        Write-Host "##[error]Ollama not running on agent: $($_.Exception.Message)"
+        Write-Host "##[section]📋 ONE-TIME Agent Setup Required:"
+        Write-Host "##[section]   1. Install: winget install Ollama.Ollama"
+        Write-Host "##[section]   2. Download model: ollama pull codellama:7b"
+        Write-Host "##[section]   3. Setup auto-start (see Ollama-AutoStart-Setup.md)"
+        Write-Host "##[section]   After setup, Ollama will start automatically!"
+        exit 1
+      }
+  displayName: 'Verify FREE AI service (Agent Setup Required)'
   continueOnError: true
 
 # Fast install with Windows optimizations - NEEDED FOR AUDIT
 - script: |
     cd my-app
-    # ...existing code...
+    echo "Installing dependencies with Windows optimizations..."
+    npm config set fund false
+    npm config set audit false
+    npm install --no-optional --no-fund --silent
   displayName: 'npm install (Windows optimized)'
 
 # Skip tests for speed - uncomment if needed
@@ -47,7 +84,7 @@ steps:
 #       
 #       $auditFile = "audit-results.txt"
 #       $auditJsonFile = "audit-results.json"
-#       $projectName = "REPO_PLACEHOLDER"
+#       $projectName = "$(Build.Repository.Name)"
 #       
 #       Write-Host "##[section]Running npm audit for $projectName..."
 #       
@@ -91,11 +128,11 @@ steps:
 # - task: SonarCloudPrepare@1
 #   inputs:
 #     SonarCloud: 'sonar'
-#     organization: 'ORG_PLACEHOLDER'
+#     organization: 'ap12324546'
 #     scannerMode: 'CLI'
 #     configMode: 'manual'
-#     cliProjectKey: 'ORG_PLACEHOLDER_PROJECT_PLACEHOLDER'
-#     cliProjectName: 'PROJECT_PLACEHOLDER'
+#     cliProjectKey: 'ap12324546_AP54'
+#     cliProjectName: 'AP54'
 #     extraProperties: |
 #       sonar.sources=my-app/src
 #       sonar.exclusions=**/node_modules/**,**/build/**,**/coverage/**
@@ -143,8 +180,8 @@ steps:
 #       
 #       $org = "$(System.TeamFoundationCollectionUri)".TrimEnd('/')
 #       $project = [System.Uri]::EscapeDataString("$(System.TeamProject)")
-#       $epicId = "EPICID_PLACEHOLDER"
-#       $epicTitle = "EPIC_TITLE_PLACEHOLDER"
+#       $epicId = "$(vulnerabilityEpicId)"
+#       $epicTitle = "$(vulnerabilityEpicTitle)"
 #       
 #       # Check if Epic exists
 #       $epicUrl = "$org/$project/_apis/wit/workitems/$epicId" + "?api-version=6.0"
@@ -203,3 +240,98 @@ steps:
 #     targetType: 'filePath'
 #     filePath: 'scripts/Security-VulnerabilityTickets.ps1'
 #     arguments: >
+#       -EpicId "$(vulnerabilityEpicId)"
+#       -EpicTitle "$(vulnerabilityEpicTitle)" 
+#       -Organization "$(System.TeamFoundationCollectionUri)"
+#       -Project "$(System.TeamProject)"
+#       -AccessToken "$(System.AccessToken)"
+#       -AuditFile "my-app/audit-results.json"
+#       -RepositoryName "$(Build.Repository.Name)"
+#     workingDirectory: '$(Build.SourcesDirectory)'
+#   displayName: 'Create vulnerability Issue items under Epic #$(vulnerabilityEpicId)'
+#   continueOnError: true
+
+# 🆓 FREE AI User Story Estimation (Local Ollama)
+- task: PowerShell@2
+  inputs:
+    targetType: 'filePath'
+    filePath: 'scripts/AI-StoryPointEstimation.ps1'
+    arguments: >
+      -Organization "$(System.TeamFoundationCollectionUri)"
+      -Project "$(System.TeamProject)"
+      -AccessToken "$(System.AccessToken)"
+      -LogFile "ai-estimation.log"
+      -AIProvider "$(if ($env:USELOCALAI -eq 'true') { 'Ollama' } else { 'Groq' })"
+      -OllamaEndpoint "http://localhost:11434"
+      -OllamaModel "llama3.2:3b"
+      -GroqApiKey "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"
+      -GroqModel "llama-3.1-8b-instant"
+    workingDirectory: '$(Build.SourcesDirectory)'
+  env:
+    USELOCALAI: $(useLocalAI)
+  displayName: 'AI Story Point Estimation'
+  continueOnError: true
+
+# Create placeholder files to ensure artifacts exist
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      # Ensure log files exist for artifact publishing
+      if (-not (Test-Path "vulnerability-processing.log")) {
+        "No vulnerability processing log was created." | Set-Content "vulnerability-processing.log"
+      }
+      if (-not (Test-Path "work-item-results.json")) {
+        '{"message":"No results file was created","timestamp":"' + (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + '"}' | Set-Content "work-item-results.json"
+      }
+      if (-not (Test-Path "ai-estimation.log")) {
+        "No AI estimation log was created." | Set-Content "ai-estimation.log"
+      }
+      
+      Write-Host "##[section]Files available for artifacts:"
+      Get-ChildItem -Filter "*.log" | ForEach-Object { Write-Host "  - $($_.Name)" }
+      Get-ChildItem -Filter "*.json" | ForEach-Object { Write-Host "  - $($_.Name)" }
+  displayName: 'Ensure artifact files exist'
+  condition: always()
+
+# Publish debug artifacts
+# - task: PublishBuildArtifacts@1
+#   inputs:
+#     PathtoPublish: 'vulnerability-processing.log'
+#     ArtifactName: 'debug-logs'
+#     publishLocation: 'Container'
+#   displayName: 'Publish vulnerability processing log'
+#   condition: always()
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: 'work-item-results.json'
+    ArtifactName: 'debug-results'
+    publishLocation: 'Container'
+  displayName: 'Publish work item results'
+  condition: always()
+
+# COMMENTED OUT - Audit results not generated since audit step is disabled
+# - task: PublishBuildArtifacts@1
+#   inputs:
+#     PathtoPublish: 'my-app/audit-results.json'
+#     ArtifactName: 'audit-data'
+#     publishLocation: 'Container'
+#   displayName: 'Publish audit results'
+#   condition: succeededOrFailed()
+
+# - task: SonarCloudAnalyze@1
+#   displayName: 'Run SonarCloud analysis'
+
+# - task: SonarCloudPublish@1
+#   inputs:
+#     pollingTimeoutSec: '300'
+#   displayName: 'Publish SonarCloud Quality Gate Result'
+
+# Publish build artifact - COMMENTED OUT SINCE BUILD IS DISABLED
+# - task: PublishBuildArtifacts@1
+#   inputs:
+#     PathtoPublish: 'my-app/build'
+#     ArtifactName: 'webapp'
+#     publishLocation: 'Container'
+#   displayName: 'Publish build artifact'

@@ -1,25 +1,27 @@
-# Setup SQLite for PowerShell using PSSQLite module
-Write-Host "Setting up SQLite for AI Memory..." -ForegroundColor Cyan
+
+# Dot-source shared Write-Log function
+. "$PSScriptRoot\functions\Write-Log.ps1"
+
+Write-Log "Setting up SQLite for AI Memory..."
 
 # Check if PSSQLite is installed
+
 if (Get-Module -ListAvailable -Name PSSQLite) {
-    Write-Host "✅ PSSQLite module already installed" -ForegroundColor Green
+    Write-Log "✅ PSSQLite module already installed"
 } else {
-    Write-Host "Installing PSSQLite module..." -ForegroundColor Yellow
+    Write-Log "Installing PSSQLite module..."
     try {
         Install-Module -Name PSSQLite -Force -Scope CurrentUser -AllowClobber
-        Write-Host "✅ PSSQLite installed successfully!" -ForegroundColor Green
+        Write-Log "✅ PSSQLite installed successfully!"
     }
     catch {
-        Write-Host "❌ Failed to install PSSQLite: $($_.Exception.Message)" -ForegroundColor Red
-        Write-Host ""
-        Write-Host "Manual installation:" -ForegroundColor Yellow
-        Write-Host "  Run as Administrator: Install-Module -Name PSSQLite -Force"
+        Write-Log "❌ Failed to install PSSQLite: $($_.Exception.Message)" "ERROR"
+        Write-Log "Manual installation:" "WARN"
+        Write-Log "  Run as Administrator: Install-Module -Name PSSQLite -Force" "WARN"
         exit 1
     }
 }
 
 Import-Module PSSQLite
-Write-Host "✅ PSSQLite module loaded" -ForegroundColor Green
-Write-Host ""
-Write-Host "Next step: Run Initialize-EstimationDB.ps1" -ForegroundColor Cyan
+Write-Log "✅ PSSQLite module loaded"
+Write-Log "Next step: Run Initialize-EstimationDB.ps1"

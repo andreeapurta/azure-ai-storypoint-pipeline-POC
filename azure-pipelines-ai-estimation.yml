@@ -1,0 +1,104 @@
+## -------------------------------------------------------------
+# AI Estimation Pipeline
+# This pipeline runs AI-based user story point estimation on a schedule (twice a week).
+# It can use either Ollama (local) or Groq (cloud) as the AI provider.
+#
+# Steps:
+# 1. Trigger: Runs on a schedule (Mon/Thu at 2:00 AM UTC).
+# 2. Uses a self-hosted agent pool ('Default').
+# 3. Sets variables for Node.js version and AI provider (local/cloud).
+# 4. Checks out the latest source code.
+# 5. Installs the specified Node.js version.
+# 6. Verifies the local AI service (Ollama) and required models (if enabled).
+# 7. Installs npm dependencies in 'my-app' with Windows optimizations.
+# 8. Runs AI Story Point Estimation using a PowerShell script (Ollama or Groq).
+# 9. Ensures an AI estimation log exists and lists available log/JSON files.
+# 10. (Optional) Publishes logs as artifacts.
+## -----------
+schedules:
+  - cron: "0 2 * * 1,4" # At 02:00 UTC on Monday and Thursday
+    displayName: "Twice a week (Mon/Thu 2:00 UTC)"
+    branches:
+      include:
+        - master
+    always: true
+
+pool:
+  name: 'Default'
+
+variables:
+  useLocalAI: true  # Set to false to use Groq cloud API instead
+
+steps:
+- checkout: self
+  clean: true
+  fetchDepth: 0
+
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "##[section]🔍 Verifying local AI service (Ollama) on agent (only if enabled)..."
+      try {
+        $health = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 5
+        $modelCount = $health.models.Count
+        $models = $health.models.name -join ', '
+        Write-Host "##[section]✅ Ollama running with $modelCount models: $models"
+        if ($health.models | Where-Object { $_.name -like "codellama*" }) {
+          Write-Host "##[section]🎯 CodeLlama ready for technical User Story estimation!"
+        } else {
+          Write-Host "##[warning]CodeLlama not found, will use available model"
+        }
+      }
+      catch {
+        Write-Host "##[error]Ollama not running on agent: $($_.Exception.Message)"
+        Write-Host "##[section]📋 ONE-TIME Agent Setup Required (only if using local AI):"
+        Write-Host "##[section]   1. Install: winget install Ollama.Ollama"
+        Write-Host "##[section]   2. Download model: ollama pull codellama:7b"
+        Write-Host "##[section]   3. Setup auto-start (see Ollama-AutoStart-Setup.md)"
+        Write-Host "##[section]   After setup, Ollama will start automatically!"
+        exit 1
+      }
+  displayName: 'Verify AI service (Agent Setup Required)'
+  continueOnError: true
+
+- task: PowerShell@2
+  inputs:
+    targetType: 'filePath'
+    filePath: 'scripts/AI-StoryPointEstimation.ps1'
+    arguments: >
+      -Organization "$(System.TeamFoundationCollectionUri)"
+      -Project "$(System.TeamProject)"
+      -AccessToken "$(System.AccessToken)"
+      -LogFile "ai-estimation.log"
+      -AIProvider "$(if ($env:USELOCALAI -eq 'true') { 'Ollama' } else { 'Groq' })"
+      -OllamaEndpoint "http://localhost:11434"
+      -OllamaModel "llama3.2:3b"
+      -GroqApiKey "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"
+      -GroqModel "llama-3.1-8b-instant"
+    workingDirectory: '$(Build.SourcesDirectory)'
+  env:
+    USELOCALAI: $(useLocalAI)
+  displayName: 'AI Story Point Estimation'
+  continueOnError: true
+
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+      if (-not (Test-Path "ai-estimation.log")) {
+        "No AI estimation log was created." | Set-Content "ai-estimation.log"
+      }
+      Write-Host "##[section]Files available for artifacts:"
+      Get-ChildItem -Filter "*.log" | ForEach-Object { Write-Host "  - $($_.Name)" }
+      Get-ChildItem -Filter "*.json" | ForEach-Object { Write-Host "  - $($_.Name)" }
+  displayName: 'Ensure AI estimation log exists'
+  condition: always()
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: 'ai-estimation.log'
+    ArtifactName: 'ai-estimation-log'
+    publishLocation: 'Container'
+  displayName: 'Publish AI estimation log'
+  condition: always()

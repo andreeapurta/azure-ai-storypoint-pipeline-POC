@@ -1,35 +1,34 @@
-Write-Host "Starting Azure DevOps Agent + Local Ollama AI" -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "AI Provider: Ollama (Local & Private)" -ForegroundColor Yellow
-Write-Host "Starting Ollama service..." -ForegroundColor Yellow
+﻿    # Dot-source shared Write-Log function
+    . "$PSScriptRoot\functions\Write-Log.ps1"
+
+Write-Log "Starting Azure DevOps Agent + Local Ollama AI"
+Write-Log "Starting Ollama service..."
 try {
     $ollamaProcess = Get-Process ollama -ErrorAction SilentlyContinue
     if ($ollamaProcess) {
-        Write-Host "   Already running (PID: $($ollamaProcess.Id))" -ForegroundColor Green
+    Write-Log "   Already running (PID: $($ollamaProcess.Id))"
     } else {
         Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
         Start-Sleep -Seconds 3
-        Write-Host "   Ollama started" -ForegroundColor Green
+    Write-Log "   Ollama started"
     }
 }
 catch {
-    Write-Host "   Error starting Ollama: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Log "   Error starting Ollama: $($_.Exception.Message)" "WARN"
 }
-Write-Host ""
-Write-Host "Starting Azure DevOps Agent..." -ForegroundColor Yellow
-$agentPath = "AGENT_PATH_PLACEHOLDER"
+Write-Log ""
+Write-Log "Starting Azure DevOps Agent..."
+$agentPath = "C:\Users\purte\OneDrive\Desktop\agent test\vsts-agent-win-x64-4.261.0"
 if (Test-Path $agentPath) {
     Set-Location $agentPath
-    Write-Host "   Agent directory: $agentPath" -ForegroundColor Cyan
+    Write-Log "   Agent directory: $agentPath"
     .\run.cmd
 } else {
-    Write-Host "   Agent directory not found: $agentPath" -ForegroundColor Red
-    Read-Host "Press Enter to exit..."
+    Write-Log "   Agent directory not found: $agentPath" "ERROR"
 }
-Write-Host ""
-Write-Host "Agent stopped." -ForegroundColor Yellow
+Write-Log "Agent stopped."
 try {
     Stop-Process -Name ollama -Force -ErrorAction SilentlyContinue
-    Write-Host "   Ollama stopped" -ForegroundColor Green
+    Write-Log "   Ollama stopped"
 }
 catch {}
