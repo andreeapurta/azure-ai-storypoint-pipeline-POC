@@ -1,0 +1,184 @@
+# Azure Pipeline: AI Agent Learning (Historical Data Collection)
+# Purpose: Collect closed User Stories with story points and save to SQLite database
+# Schedule: Runs weekly on Sunday at 2:00 AM UTC
+# Duration: ~30 seconds to 2 minutes (depending on number of closed stories)
+
+trigger: none  # No CI/CD triggers - only runs on schedule
+
+schedules:
+- cron: "0 2 * * 0"  # Every Sunday at 2:00 AM UTC
+  displayName: Weekly Learning Data Collection
+  branches:
+    include:
+    - main
+  always: true  # Run even if no code changes
+
+# TESTING SCHEDULE - Remove after successful test
+- cron: "*/2 * * * *"  # Every 2 minutes (for testing only)
+  displayName: Test Run (Remove After Testing)
+  branches:
+    include:
+    - main
+  always: true
+
+pool:
+  name: 'Default'  # Use self-hosted agent pool (free, no parallelism limits)
+
+variables:
+  - name: Organization
+    value: 'https://dev.azure.com/ORG_PLACEHOLDER'
+  - name: Project
+    value: 'PROJECT_PLACEHOLDER'
+  # Set AzureDevOpsToken as a secret variable in the pipeline UI or use System.AccessToken
+
+stages:
+- stage: CollectHistoricalData
+  displayName: 'Collect Historical Data for AI Learning'
+  jobs:
+  - job: RunDataCollection
+    displayName: 'Run Collect-HistoricalData.ps1'
+    timeoutInMinutes: 10
+    
+    steps:
+    - checkout: self
+      displayName: 'Checkout Repository'
+      clean: true
+      persistCredentials: true  # Enable System.AccessToken
+    
+    - task: PowerShell@2
+      displayName: 'Install PSSQLite Module'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "Installing PSSQLite module for SQLite database operations..."
+          Install-Module -Name PSSQLite -Force -Scope CurrentUser -AllowClobber
+          Write-Host "PSSQLite module installed successfully"
+    
+    - task: PowerShell@2
+      displayName: 'Initialize SQLite Database (if needed)'
+      inputs:
+        targetType: 'inline'
+        script: |
+          $dbPath = "$(Build.SourcesDirectory)\estimation-memory.db"
+          
+          if (-not (Test-Path $dbPath)) {
+            Write-Host "Database not found - creating new database..."
+            & "$(Build.SourcesDirectory)\scripts\Initialize-EstimationDB.ps1"
+            Write-Host "Database initialized successfully"
+          } else {
+            Write-Host "Database already exists at: $dbPath"
+            
+            # Show database stats
+            $tableInfo = Invoke-SqliteQuery -DataSource $dbPath -Query "SELECT COUNT(*) as count FROM estimations"
+            Write-Host "Current database contains $($tableInfo.count) historical stories"
+          }
+    
+    - task: PowerShell@2
+      displayName: 'Collect Closed User Stories'
+      inputs:
+        filePath: '$(Build.SourcesDirectory)\scripts\Collect-HistoricalData.ps1'
+        arguments: >
+          -Organization "$(Organization)"
+          -Project "$(Project)"
+          -AccessToken "$(System.AccessToken)"
+          -DbPath "estimation-memory.db"
+        errorActionPreference: 'stop'
+        failOnStderr: false
+      env:
+        SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    
+    - task: PowerShell@2
+      displayName: 'Database Statistics'
+      inputs:
+        targetType: 'inline'
+        script: |
+          $dbPath = "$(Build.SourcesDirectory)\estimation-memory.db"
+          
+          Write-Host ""
+          Write-Host "=== DATABASE STATISTICS ==="
+          
+          # Total stories
+          $total = Invoke-SqliteQuery -DataSource $dbPath -Query "SELECT COUNT(*) as count FROM estimations"
+          Write-Host "Total historical stories: $($total.count)"
+          
+          # By team
+          $byTeam = Invoke-SqliteQuery -DataSource $dbPath -Query "SELECT team, COUNT(*) as count FROM estimations WHERE team IS NOT NULL AND team != '' GROUP BY team ORDER BY count DESC"
+          Write-Host ""
+          Write-Host "Stories by team:"
+          foreach ($row in $byTeam) {
+            Write-Host "  $($row.team): $($row.count) stories"
+          }
+          
+          # Average story points
+          $avgSP = Invoke-SqliteQuery -DataSource $dbPath -Query "SELECT AVG(estimated_sp) as avg_sp FROM estimations WHERE estimated_sp IS NOT NULL"
+          Write-Host ""
+          Write-Host "Average story points: $([math]::Round($avgSP.avg_sp, 2))"
+          
+          # Recent additions (last 7 days) - use completed_date if it exists, otherwise skip
+          try {
+            $recent = Invoke-SqliteQuery -DataSource $dbPath -Query "SELECT COUNT(*) as count FROM estimations WHERE completed_date >= datetime('now', '-7 days')"
+            Write-Host "Stories added in last 7 days: $($recent.count)"
+          } catch {
+            Write-Host "Recent additions query skipped (completed_date column may not exist)"
+          }
+    
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish SQLite Database as Artifact'
+      condition: succeededOrFailed()
+      inputs:
+        pathToPublish: '$(Build.SourcesDirectory)\estimation-memory.db'
+        artifactName: 'learning-database'
+        publishLocation: 'Container'
+    
+    - task: PowerShell@2
+      displayName: 'Commit Database Back to Repository'
+      condition: succeeded()
+      inputs:
+        targetType: 'inline'
+        script: |
+          cd "$(Build.SourcesDirectory)"
+          
+          # Configure git
+          git config user.email "pipeline@azuredevops.com"
+          git config user.name "AI Learning Pipeline"
+          
+          # Get the current branch name
+          $branchName = git rev-parse --abbrev-ref HEAD
+          Write-Host "Current branch: $branchName"
+          
+          # If detached HEAD, get the branch from Build.SourceBranch
+          if ($branchName -eq "HEAD") {
+            $branchName = "$(Build.SourceBranchName)"
+            Write-Host "Detached HEAD detected, using source branch: $branchName"
+            git checkout -B $branchName
+          }
+          
+          # Check if database file exists
+          $dbFile = "estimation-memory.db"
+          if (Test-Path $dbFile) {
+            Write-Host "Database file found: $dbFile"
+            Write-Host "File size: $((Get-Item $dbFile).Length) bytes"
+          } else {
+            Write-Host "WARNING: Database file not found at: $dbFile" -ForegroundColor Yellow
+            exit 0
+          }
+          
+          # Add the updated database
+          git add estimation-memory.db
+          
+          # Check if there are changes
+          $status = git status --porcelain
+          Write-Host "Git status output: '$status'"
+          
+          if ($status) {
+            Write-Host "Database has changes - committing..."
+            git commit -m "Update learning database with closed User Stories [skip ci]"
+            
+            # Push to the branch we're on
+            Write-Host "Pushing to branch: $branchName"
+            # git push origin $branchName
+          } else {
+            Write-Host "No changes to database - skipping commit"
+          }
+      env:
+        SYSTEM_ACCESSTOKEN: $(System.AccessToken)

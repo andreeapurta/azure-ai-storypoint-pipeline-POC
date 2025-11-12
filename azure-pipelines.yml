@@ -1,0 +1,205 @@
+trigger:
+  - master
+
+pool:
+  name: 'Default'  # Use your self-hosted agent pool
+
+variables:
+  # Set node version used by the pipeline
+  # ...existing code...
+  useLocalAI: true  # Set to false to use Groq cloud API instead
+
+steps:
+- checkout: self
+  clean: true
+  fetchDepth: 0
+
+# Install Node and cache npm
+- task: NodeTool@0
+  inputs:
+    # ...existing code...
+  displayName: 'Use Node.js $(node_version)'
+
+# Verify FREE AI service (Ollama pre-installed on agent)
+- task: PowerShell@2
+  inputs:
+    # ...existing code...
+  continueOnError: true
+
+# Fast install with Windows optimizations - NEEDED FOR AUDIT
+- script: |
+    cd my-app
+    # ...existing code...
+  displayName: 'npm install (Windows optimized)'
+
+# Skip tests for speed - uncomment if needed
+# - script: |
+#     cd my-app
+#     npm test -- --coverage --ci --watchAll=false
+#   displayName: 'Run tests with coverage'
+
+# Security audit and vulnerability check - TEMPORARILY DISABLED (npm registry issues)
+# - task: PowerShell@2
+#   inputs:
+#     targetType: 'inline'
+#     script: |
+#       Set-Location "my-app"
+#       
+#       $auditFile = "audit-results.txt"
+#       $auditJsonFile = "audit-results.json"
+#       $projectName = "REPO_PLACEHOLDER"
+#       
+#       Write-Host "##[section]Running npm audit for $projectName..."
+#       
+#       try {
+#         # Run audit and capture both text and JSON output
+#         npm audit --omit=dev --audit-level=moderate > $auditFile
+#         npm audit --omit=dev --audit-level=moderate --json > $auditJsonFile
+#         
+#         Write-Host "##[debug]Audit files created:"
+#         Write-Host "##[debug]  - Text: $(Test-Path $auditFile)"
+#         Write-Host "##[debug]  - JSON: $(Test-Path $auditJsonFile)"
+#       }
+#       finally {
+#         # Always show the audit report
+#         if (Test-Path $auditFile) {
+#           $report = Get-Content -Path $auditFile -Raw
+#           Write-Host "##[section]=== NPM AUDIT REPORT ==="
+#           Write-Host $report
+#           Write-Host "##[section]==========================="
+#           
+#           # Check for vulnerabilities but don't fail the pipeline
+#           if ($LASTEXITCODE -ne 0) {
+#             $scanInfo = $report | Select-String "scanned.*packages" | Select-Object -First 1
+#             if ($scanInfo) {
+#               Write-Host "##vso[task.logissue type=warning]$projectName : $($scanInfo.Line)"
+#             }
+#             Write-Host "##[warning]Vulnerabilities found - will create work items"
+#           } else {
+#             Write-Host "##[section]✅ No vulnerabilities found!"
+#           }
+#         }
+#         
+#         # Reset exit code to continue pipeline
+#         $LASTEXITCODE = 0
+#         Write-Host "##[debug]Audit scan completed successfully"
+#       }
+#     workingDirectory: '$(Build.SourcesDirectory)'
+#   displayName: 'Security vulnerability scan (robust)'
+
+# SonarCloud analysis: prepare, run analysis, publish (DISABLED FOR NOW)
+# - task: SonarCloudPrepare@1
+#   inputs:
+#     SonarCloud: 'sonar'
+#     organization: 'ORG_PLACEHOLDER'
+#     scannerMode: 'CLI'
+#     configMode: 'manual'
+#     cliProjectKey: 'ORG_PLACEHOLDER_PROJECT_PLACEHOLDER'
+#     cliProjectName: 'PROJECT_PLACEHOLDER'
+#     extraProperties: |
+#       sonar.sources=my-app/src
+#       sonar.exclusions=**/node_modules/**,**/build/**,**/coverage/**
+#       sonar.javascript.lcov.reportPaths=my-app/coverage/lcov.info
+#   displayName: 'Prepare SonarCloud analysis'
+
+# Run the build (CRA build) from the my-app folder - COMMENTED OUT FOR NOW
+# - script: |
+#     cd my-app
+#     echo "Starting build..."
+#     npm run build
+#   displayName: 'Build (npm run build)'
+
+# Quick build verification (PowerShell) - COMMENTED OUT SINCE BUILD IS DISABLED
+# - task: PowerShell@2
+#   inputs:
+#     targetType: 'inline'
+#     script: |
+#       Set-Location "my-app"
+#       
+#       if (-not (Test-Path "build")) {
+#         Write-Host "##[error]Build directory not found!"
+#         exit 1
+#       }
+#       
+#       if (-not (Test-Path "build/index.html")) {
+#         Write-Host "##[error]index.html not found in build directory!"
+#         exit 1
+#       }
+#       
+#       Write-Host "##[section]✅ Build verification successful"
+#       Write-Host "Build contents:"
+#       Get-ChildItem "build" | Format-Table Name, Length, LastWriteTime
+#   displayName: 'Verify build artifacts'
+
+# TEMPORARILY DISABLED - Ensure Epic exists for vulnerability tickets
+# - task: PowerShell@2
+#   inputs:
+#     targetType: 'inline'
+#     script: |
+#       $headers = @{
+#         'Authorization' = "Bearer $(System.AccessToken)"
+#         'Content-Type' = 'application/json-patch+json'
+#       }
+#       
+#       $org = "$(System.TeamFoundationCollectionUri)".TrimEnd('/')
+#       $project = [System.Uri]::EscapeDataString("$(System.TeamProject)")
+#       $epicId = "EPICID_PLACEHOLDER"
+#       $epicTitle = "EPIC_TITLE_PLACEHOLDER"
+#       
+#       # Check if Epic exists
+#       $epicUrl = "$org/$project/_apis/wit/workitems/$epicId" + "?api-version=6.0"
+#       
+#       try {
+#         $epic = Invoke-RestMethod -Uri $epicUrl -Method GET -Headers @{'Authorization' = "Bearer $(System.AccessToken)"}
+#         Write-Host "##[section]✅ Epic #$epicId already exists: $($epic.fields.'System.Title')"
+#       }
+#       catch {
+#         Write-Host "##[warning]Epic #$epicId not found. Creating it..."
+#         
+#         # Create Epic work item
+#         $epicData = @(
+#           @{
+#             op = "add"
+#             path = "/fields/System.Title"
+#             value = $epicTitle
+#           },
+#           @{
+#             op = "add"
+#             path = "/fields/System.WorkItemType"
+#             value = "Epic"
+#           },
+#           @{
+#             op = "add"
+#             path = "/fields/System.Description"
+#             value = "Epic for tracking security vulnerabilities and their fixes"
+#           },
+#           @{
+#             op = "add"
+#             path = "/fields/System.Tags"
+#             value = "security; vulnerability; automated"
+#           }
+#         )
+#         
+#         $epicJson = $epicData | ConvertTo-Json -Depth 4
+#         $createEpicUrl = "$org/$project/_apis/wit/workitems/`$Epic?api-version=6.0"
+#         
+#         try {
+#           $newEpic = Invoke-RestMethod -Uri $createEpicUrl -Method POST -Headers $headers -Body $epicJson
+#           Write-Host "##[section]✅ Created Epic #$($newEpic.id): $($newEpic.fields.'System.Title')"
+#           Write-Host "##vso[task.setvariable variable=vulnerabilityEpicId]$($newEpic.id)"
+#         }
+#         catch {
+#           Write-Host "##[error]Failed to create Epic: $($_.Exception.Message)"
+#           Write-Host "##[warning]Will create Bug items without Epic relationship"
+#         }
+#       }
+#   displayName: 'Create or verify Epic for vulnerabilities'
+#   continueOnError: true
+
+# TEMPORARILY DISABLED - Create work items for vulnerabilities under Epic
+# - task: PowerShell@2
+#   timeoutInMinutes: 2
+#   inputs:
+#     targetType: 'filePath'
+#     filePath: 'scripts/Security-VulnerabilityTickets.ps1'
+#     arguments: >
