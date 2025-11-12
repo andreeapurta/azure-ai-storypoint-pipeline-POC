@@ -74,7 +74,7 @@ steps:
       -AIProvider "$(if ($env:USELOCALAI -eq 'true') { 'Ollama' } else { 'Groq' })"
       -OllamaEndpoint "http://localhost:11434"
       -OllamaModel "llama3.2:3b"
-      -GroqApiKey "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"
+      -GroqApiKey "<your-groq-api-key>"
       -GroqModel "llama-3.1-8b-instant"
     workingDirectory: '$(Build.SourcesDirectory)'
   env:

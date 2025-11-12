@@ -27,9 +27,9 @@ pool:
 
 variables:
   - name: Organization
-    value: 'https://dev.azure.com/ap12324546'
+    value: '<your-organization-url>'
   - name: Project
-    value: 'AP54'
+    value: '<your-project-name>'
 
 stages:
 - stage: CollectHistoricalData
