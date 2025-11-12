@@ -1,0 +1,106 @@
+# -------------------------------------------------------------
+# Standard Pipeline:
+# This pipeline automates the standard CI process for a Node.js project.
+
+# Steps:
+#   1. Trigger: Runs on changes to the master branch.
+#   2. Uses a self-hosted agent pool ('Default').
+#   3. Sets the Node.js version as a variable.
+#   4. Checks out the latest source code.
+#   5. Installs the specified Node.js version.
+#   6. Installs npm dependencies in 'my-app' with Windows optimizations.
+#   7. Runs tests with coverage.
+#   8. (Optional) Builds the app (add build step if needed).
+#   9. (Optional) Runs SonarCloud analysis (uncomment to enable).
+#  10. Publishes build artifacts.
+# -------------------------------------------------------------
+
+# trigger:
+#   - master
+trigger: none
+pool:
+  name: 'Default'  # Use your self-hosted agent pool
+
+variables:
+  node_version: '18'
+
+steps:
+  - checkout: self
+    clean: true
+    fetchDepth: 0
+
+  # Install Node and cache npm
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '$(node_version)'
+    displayName: 'Use Node.js $(node_version)'
+
+  # Fast install with Windows optimizations (PowerShell, ensures log is created)
+  - task: PowerShell@2
+    displayName: 'npm install (Windows optimized, PowerShell)'
+    inputs:
+      targetType: 'inline'
+      script: |
+        cd my-app
+        Write-Host "Installing dependencies with Windows optimizations..."
+        npm config set fund false
+        npm config set audit false
+        # Run npm install and redirect all output to npm-install.log (PowerShell all-stream redirection)
+        npm install *> npm-install.log
+        Write-Host "npm install exit code: $LASTEXITCODE"
+        Write-Host "npm install log:"
+        Get-Content npm-install.log
+
+  # Debug: List my-app contents after install
+  - script: |
+      cd my-app
+      echo "Listing my-app contents after install..."
+      dir
+    displayName: 'Debug: List my-app contents after install'
+
+  # Debug: List node_modules and check for react-scripts
+  - script: |
+      cd my-app
+      echo "Listing node_modules..."
+      dir node_modules
+      if exist node_modules\react-scripts (
+        echo "react-scripts found."
+      ) else (
+        echo "react-scripts NOT found!"
+      )
+    displayName: 'Debug: Check for react-scripts'
+
+  # Run tests with coverage
+  - script: |
+      cd my-app
+      npm test -- --coverage --ci --watchAll=false
+    displayName: 'Run tests with coverage'
+
+  # SonarCloud analysis
+  # - template: sonarcloud-template.yml
+
+  # Publish build artifact
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: 'my-app/build'
+      ArtifactName: 'webapp'
+      publishLocation: 'Container'
+    displayName: 'Publish build artifact'
+
+  # Publish npm install log as artifact for debugging
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: 'my-app/npm-install.log'
+      ArtifactName: 'npm-install-log'
+      publishLocation: 'Container'
+    displayName: 'Publish npm install log'
+    condition: always()
+
+  # Publish my-app directory as artifact for debugging (optional, can be removed later)
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: 'my-app'
+      ArtifactName: 'my-app-folder'
+      publishLocation: 'Container'
+    displayName: 'Publish my-app folder'
+    condition: always()
